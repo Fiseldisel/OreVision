@@ -1,0 +1,18 @@
+# служебное ассистента/IDE
+.claude/
+.streamlit/secrets.toml
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# генерируемое
+data/cache/
+results/
+presentation/render/
+streamlit.log
+nohup.out
+
+# веса модели НАМЕРЕННО в репозитории (models/best.pt, ~80 МБ < лимита GitHub 100 МБ):
+# жюри получает готовое решение без обучения

@@ -1,0 +1,50 @@
+2026-07-02 23:21:39,128 INFO orevision.train: device=cuda torch=2.9.1+cu130 classes=['ordinary', 'hard', 'talc']
+2026-07-02 23:21:39,193 INFO orevision.train: train=880 val=220
+2026-07-02 23:22:49,399 INFO orevision.train: epoch 01/40 loss=0.8836 val macro-F1=0.6986 (ordinary=0.755 hard=0.674 talc=0.667)
+2026-07-02 23:23:00,989 INFO orevision.train: epoch 02/40 loss=0.5840 val macro-F1=0.8223 (ordinary=0.796 hard=0.796 talc=0.875)
+2026-07-02 23:23:11,829 INFO orevision.train: epoch 03/40 loss=0.4734 val macro-F1=0.8064 (ordinary=0.862 hard=0.779 talc=0.778)
+2026-07-02 23:23:22,857 INFO orevision.train: epoch 04/40 loss=0.4241 val macro-F1=0.8395 (ordinary=0.873 hard=0.868 talc=0.778)
+2026-07-02 23:23:34,438 INFO orevision.train: epoch 05/40 loss=0.3890 val macro-F1=0.8514 (ordinary=0.885 hard=0.829 talc=0.840)
+2026-07-02 23:23:46,459 INFO orevision.train: epoch 06/40 loss=0.4031 val macro-F1=0.8385 (ordinary=0.893 hard=0.859 talc=0.764)
+2026-07-02 23:23:57,386 INFO orevision.train: epoch 07/40 loss=0.3735 val macro-F1=0.8691 (ordinary=0.913 hard=0.871 talc=0.824)
+2026-07-02 23:24:08,190 INFO orevision.train: epoch 08/40 loss=0.3416 val macro-F1=0.8532 (ordinary=0.886 hard=0.881 talc=0.792)
+2026-07-02 23:24:18,996 INFO orevision.train: epoch 09/40 loss=0.3489 val macro-F1=0.8499 (ordinary=0.879 hard=0.879 talc=0.792)
+2026-07-02 23:24:29,787 INFO orevision.train: epoch 10/40 loss=0.3103 val macro-F1=0.8772 (ordinary=0.909 hard=0.865 talc=0.857)
+2026-07-02 23:24:40,818 INFO orevision.train: epoch 11/40 loss=0.3184 val macro-F1=0.8489 (ordinary=0.889 hard=0.865 talc=0.792)
+2026-07-02 23:24:51,958 INFO orevision.train: epoch 12/40 loss=0.3884 val macro-F1=0.8792 (ordinary=0.892 hard=0.871 talc=0.875)
+2026-07-02 23:25:02,847 INFO orevision.train: epoch 13/40 loss=0.3311 val macro-F1=0.8867 (ordinary=0.896 hard=0.855 talc=0.909)
+2026-07-02 23:25:13,800 INFO orevision.train: epoch 14/40 loss=0.3082 val macro-F1=0.8749 (ordinary=0.894 hard=0.874 talc=0.857)
+2026-07-02 23:25:24,667 INFO orevision.train: epoch 15/40 loss=0.3034 val macro-F1=0.8812 (ordinary=0.911 hard=0.893 talc=0.840)
+2026-07-02 23:25:37,167 INFO orevision.train: epoch 16/40 loss=0.2764 val macro-F1=0.8853 (ordinary=0.910 hard=0.889 talc=0.857)
+2026-07-02 23:25:48,966 INFO orevision.train: epoch 17/40 loss=0.3042 val macro-F1=0.9091 (ordinary=0.922 hard=0.893 talc=0.913)
+2026-07-02 23:26:00,471 INFO orevision.train: epoch 18/40 loss=0.2766 val macro-F1=0.8856 (ordinary=0.908 hard=0.874 talc=0.875)
+2026-07-02 23:26:12,962 INFO orevision.train: epoch 19/40 loss=0.2885 val macro-F1=0.8858 (ordinary=0.907 hard=0.875 talc=0.875)
+2026-07-02 23:26:25,117 INFO orevision.train: epoch 20/40 loss=0.2608 val macro-F1=0.9037 (ordinary=0.927 hard=0.890 talc=0.894)
+2026-07-02 23:26:36,119 INFO orevision.train: epoch 21/40 loss=0.2581 val macro-F1=0.8921 (ordinary=0.920 hard=0.899 talc=0.857)
+2026-07-02 23:26:46,922 INFO orevision.train: epoch 22/40 loss=0.2600 val macro-F1=0.9126 (ordinary=0.926 hard=0.899 talc=0.913)
+2026-07-02 23:26:57,839 INFO orevision.train: epoch 23/40 loss=0.2713 val macro-F1=0.8943 (ordinary=0.923 hard=0.890 talc=0.870)
+2026-07-02 23:27:08,687 INFO orevision.train: epoch 24/40 loss=0.2495 val macro-F1=0.9044 (ordinary=0.925 hard=0.895 talc=0.894)
+2026-07-02 23:27:19,560 INFO orevision.train: epoch 25/40 loss=0.2343 val macro-F1=0.8821 (ordinary=0.904 hard=0.867 talc=0.875)
+2026-07-02 23:27:30,295 INFO orevision.train: epoch 26/40 loss=0.2344 val macro-F1=0.8872 (ordinary=0.915 hard=0.877 talc=0.870)
+2026-07-02 23:27:41,109 INFO orevision.train: epoch 27/40 loss=0.2585 val macro-F1=0.9056 (ordinary=0.917 hard=0.886 talc=0.913)
+2026-07-02 23:27:51,901 INFO orevision.train: epoch 28/40 loss=0.2306 val macro-F1=0.9054 (ordinary=0.918 hard=0.885 talc=0.913)
+2026-07-02 23:28:02,778 INFO orevision.train: epoch 29/40 loss=0.2408 val macro-F1=0.9025 (ordinary=0.912 hard=0.883 talc=0.913)
+2026-07-02 23:28:13,710 INFO orevision.train: epoch 30/40 loss=0.2214 val macro-F1=0.8966 (ordinary=0.919 hard=0.877 talc=0.894)
+2026-07-02 23:28:24,592 INFO orevision.train: epoch 31/40 loss=0.2330 val macro-F1=0.8852 (ordinary=0.910 hard=0.871 talc=0.875)
+2026-07-02 23:28:35,770 INFO orevision.train: epoch 32/40 loss=0.2443 val macro-F1=0.8894 (ordinary=0.911 hard=0.864 talc=0.894)
+2026-07-02 23:28:35,770 INFO orevision.train: Ранняя остановка: 10 эпох без улучшения
+2026-07-02 23:28:37,789 INFO orevision.train: ЛУЧШАЯ эпоха 22: val macro-F1=0.9126
+                       precision    recall  f1-score   support
+
+         Рядовая руда      0.901     0.952     0.926       105
+Труднообогатимая руда      0.930     0.870     0.899        92
+   Оталькованная руда      0.913     0.913     0.913        23
+
+             accuracy                          0.914       220
+            macro avg      0.915     0.912     0.913       220
+         weighted avg      0.914     0.914     0.913       220
+
+2026-07-02 23:28:37,791 INFO orevision.train: part=ch1 n=13 macro-F1=0.8667 acc=0.9231
+2026-07-02 23:28:37,792 INFO orevision.train: part=ch2 n=207 macro-F1=0.9166 acc=0.9130
+2026-07-02 23:28:37,919 INFO orevision.model: Чекпойнт сохранён: C:\Users\user\Documents\my_project\orevision\models\best.pt
+2026-07-02 23:28:38,435 INFO orevision.train: Готово за 6.8 мин. Артефакты: C:\Users\user\Documents\my_project\orevision\models

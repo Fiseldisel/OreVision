@@ -1,0 +1,11 @@
+[server]
+# панорамы шлифов достигают сотен МБ
+maxUploadSize = 1200
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#2e7d32"
