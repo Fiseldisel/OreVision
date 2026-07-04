@@ -24,13 +24,11 @@ ROC-AUC (ovr) = **0.966**, accuracy 91.4%. Подробности: `models/metri
 ## Установка
 
 ```bash
-# 1) Python 3.11+ (использовалась Anaconda, Python 3.13)
-# 2) Склонировать проект к себе локально:
-    git clone https://github.com/Fiseldisel/OreVision.git
-# 3) PyTorch под вашу CUDA (для T4/RTX; работает и на CPU, медленнее):
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-# 4) Остальное:
-pip install -r requirements.txt
+git clone https://github.com/Fiseldisel/OreVision.git
+cd OreVision
+python -m venv .venv (опционально)
+.venv\Scripts\activate            # Linux/Mac: source .venv/bin/activate
+pip install -r requirements.txt   # версии зафиксированы, конфликтов не будет
 ```
 
 
