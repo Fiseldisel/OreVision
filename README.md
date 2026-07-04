@@ -23,13 +23,15 @@ ROC-AUC (ovr) = **0.966**, accuracy 91.4%. Подробности: `models/metri
 
 ```bash
 # 1) Python 3.11+ (использовалась Anaconda, Python 3.13)
-# 2) PyTorch под вашу CUDA (для T4/RTX; работает и на CPU, медленнее):
+# 2) Склонировать проект к себе локально:
+    git clone https://github.com/Fiseldisel/OreVision.git
+# 3) PyTorch под вашу CUDA (для T4/RTX; работает и на CPU, медленнее):
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-# 3) Остальное:
+# 4) Остальное:
 pip install -r requirements.txt
 ```
 
-Пути к данным настраиваются в `config.yaml` (`data.root`, папки-источники).
+
 
 ## Быстрый старт
 
@@ -58,19 +60,6 @@ python -m orevision.cli --input ... --no-overlay                        # тол
 Артефакты на каждый файл: `overlay.jpg`, `confidence.jpg`, `report.pdf`;
 сводные: `summary.csv`, `run_params.json` (полный лог параметров для
 воспроизводимости), `cli_log.txt`.
-
-### Переобучение / дообучение
-
-```bash
-python -m orevision.tools.build_manifest --cache   # аудит данных + кэш
-python -m orevision.train                          # ~7 мин на RTX 4070
-python -m orevision.train --arch convnext_tiny     # альтернативный бэкбон
-python -m orevision.train --init-from models/best.pt --epochs 6 --lr 2e-5  # быстрое дообучение
-```
-
-Новые данные достаточно положить в папки-источники (или добавить источник в
-`config.yaml`) и повторить две команды — аудит сам отсеет дубликаты и
-конфликты, сплит останется согласованным по пробам.
 
 ### Режим экспертной проверки (active learning)
 
