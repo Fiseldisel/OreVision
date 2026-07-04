@@ -17,8 +17,6 @@ macro-F1 = **0.913** (рядовая 0.926 / труднообогатимая 0.
 ROC-AUC (ovr) = **0.966**, accuracy 91.4%. Подробности: `models/metrics.json`,
 `models/confusion_matrix.png`.
 
-**Развёртывание и демо для жюри: [docs/DEPLOY.md](docs/DEPLOY.md).**
-
 ---
 
 ## Установка
