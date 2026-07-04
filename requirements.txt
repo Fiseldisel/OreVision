@@ -1,13 +1,13 @@
 # OreVision — зависимости
 # PyTorch ставится под вашу CUDA, см. https://pytorch.org/get-started/locally/
 # пример (CUDA 12.x):  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-torch>=2.3
-torchvision>=0.18
-numpy>=1.26
-pandas>=2.0
+torch==2.9.1
+torchvision==0.24.1
+numpy==2.2.6
+pandas==2.3.3
 scikit-learn>=1.4
 Pillow>=10.0
 PyYAML>=6.0
 matplotlib>=3.8
 streamlit>=1.36
-plotly>=5.18       # интерактивная карта классов с подсказками при наведении
+plotly==6.3.0
