@@ -80,3 +80,64 @@ def pick_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
+
+
+# ------------------------------------------------- версии модели (архив/откат)
+
+MODEL_ARTIFACTS = [
+    "best.pt",
+    "metrics.json",
+    "history.json",
+    "classification_report.txt",
+    "confusion_matrix.png",
+]
+
+
+def archive_model(models_dir: str | Path) -> Path | None:
+    """Складывает текущую модель СО ВСЕМИ артефактами в models/archive/<ts>/.
+
+    Возвращает путь архива либо None, если архивировать нечего.
+    """
+    import shutil
+    import time as _t
+
+    models_dir = Path(models_dir)
+    if not (models_dir / "best.pt").exists():
+        return None
+    dst = models_dir / "archive" / _t.strftime("%Y%m%d_%H%M%S")
+    dst.mkdir(parents=True, exist_ok=True)
+    for name in MODEL_ARTIFACTS:
+        src = models_dir / name
+        if src.exists():
+            shutil.copy2(src, dst / name)
+    log.info("Модель заархивирована: %s", dst)
+    return dst
+
+
+def list_archives(models_dir: str | Path) -> list[Path]:
+    """Архивные версии, новые в конце. Поддерживает и старый плоский формат."""
+    arch = Path(models_dir) / "archive"
+    if not arch.is_dir():
+        return []
+    dirs = [d for d in arch.iterdir() if d.is_dir() and (d / "best.pt").exists()]
+    flat = [f for f in arch.glob("best_*.pt")]  # старый формат: только веса
+    return sorted(dirs + flat, key=lambda p: p.name)
+
+
+def restore_model(models_dir: str | Path, archive: str | Path) -> Path | None:
+    """Откат к архивной версии. Текущая модель СНАЧАЛА архивируется —
+    откат всегда обратим. Возвращает путь архива текущей модели."""
+    import shutil
+
+    models_dir = Path(models_dir)
+    archive = Path(archive)
+    backup = archive_model(models_dir)
+    if archive.is_dir():
+        for name in MODEL_ARTIFACTS:
+            src = archive / name
+            if src.exists():
+                shutil.copy2(src, models_dir / name)
+    else:  # плоский .pt старого формата — восстанавливаются только веса
+        shutil.copy2(archive, models_dir / "best.pt")
+    log.info("Восстановлена версия %s (текущая сохранена в %s)", archive.name, backup)
+    return backup

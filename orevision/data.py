@@ -89,7 +89,11 @@ class _UnionFind:
 # ----------------------------------------------------------- построение манифеста
 
 def scan_sources(cfg: dict) -> pd.DataFrame:
-    """Обходит папки-источники и собирает базовую таблицу файлов."""
+    """Обходит папки-источники и собирает базовую таблицу файлов.
+
+    Дополнительно подхватывает примеры, исправленные экспертом в интерфейсе
+    (data/feedback/<класс>/, part="feedback") — механизм active learning.
+    """
     root = Path(cfg["data"]["root"])
     rows = []
     for src in cfg["data"]["sources"]:
@@ -108,6 +112,24 @@ def scan_sources(cfg: dict) -> pd.DataFrame:
                         "part": src["part"],
                     }
                 )
+    from orevision.feedback import feedback_sources
+
+    fb_total = 0
+    for src in feedback_sources(cfg):
+        for p in sorted(Path(src["dir"]).glob("*.jpg")):
+            rows.append(
+                {
+                    "path": str(p),
+                    "relpath": f"feedback/{src['class']}/{p.name}",
+                    "filename": p.name,
+                    "class": src["class"],
+                    "part": "feedback",
+                }
+            )
+            fb_total += 1
+    if fb_total:
+        log.info("Примеров дообучения (экспертный фидбэк): %d", fb_total)
+
     df = pd.DataFrame(rows)
     if df.empty:
         raise RuntimeError(
@@ -231,22 +253,30 @@ def build_manifest(cfg: dict, progress: bool = True) -> pd.DataFrame:
 def _assign_split(df: pd.DataFrame, cfg: dict) -> None:
     """Раскладывает группы в train/val так, чтобы val ≈ val_fraction по каждому классу.
 
-    Группы со смешанными классами идут только в train.
+    Группы со смешанными классами идут только в train. Экспертный фидбэк
+    (part="feedback") тоже всегда в train: примеры отобраны по ошибкам модели
+    и исказили бы валидационную метрику.
     """
     rng = random.Random(cfg["data"]["seed"])
     val_frac = float(cfg["data"]["val_fraction"])
 
     live = df[~df["exclude"]]
+    feedback_groups = set(live.loc[live["part"] == "feedback", "group"])
     group_info = {}
     for g, grp in live.groupby("group"):
         classes = set(grp["class"])
         group_info[g] = {
             "classes": classes,
             "count": len(grp),
-            "cls": grp["class"].iloc[0] if len(classes) == 1 else None,
+            "cls": (
+                grp["class"].iloc[0]
+                if len(classes) == 1 and g not in feedback_groups
+                else None  # None = кандидат только в train
+            ),
         }
 
-    class_totals = live["class"].value_counts().to_dict()
+    # целевой размер val считаем без фидбэка — он в val не попадает
+    class_totals = live.loc[live["part"] != "feedback", "class"].value_counts().to_dict()
     val_target = {c: int(round(n * val_frac)) for c, n in class_totals.items()}
     val_current = defaultdict(int)
 

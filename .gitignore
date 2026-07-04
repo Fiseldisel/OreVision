@@ -14,5 +14,9 @@ presentation/render/
 streamlit.log
 nohup.out
 
+# набор дообучения и архив чекпойнтов — локальные данные лаборатории
+data/feedback/
+models/archive/
+
 # веса модели НАМЕРЕННО в репозитории (models/best.pt, ~80 МБ < лимита GitHub 100 МБ):
 # жюри получает готовое решение без обучения

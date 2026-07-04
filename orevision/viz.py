@@ -114,11 +114,12 @@ def top_uncertain_tiles(
     result: AnalysisResult,
     cfg: dict,
     k: int = 6,
-) -> list[tuple[Image.Image, str]]:
+) -> list[dict]:
     """k участков с наименьшей уверенностью модели — «куда посмотреть глазами».
 
-    Возвращает [(кроп участка, подпись)]. base — изображение в масштабе
-    display_thumb/анализа; координаты тайлов пересчитываются автоматически.
+    Возвращает [{crop, caption, row, col, pred}] — координаты нужны для
+    экспертной коррекции (вырезка тайла в нативном разрешении). base —
+    изображение в масштабе display_thumb/анализа.
     """
     W, H = result.analysis_size
     sx, sy = base.width / W, base.height / H
@@ -139,11 +140,17 @@ def top_uncertain_tiles(
         y0 = int(ys[r] * sy)
         x1 = min(base.width, int((xs[c] + result.tile) * sx))
         y1 = min(base.height, int((ys[r] + result.tile) * sy))
-        crop = base.crop((x0, y0, x1, y1))
         cls = names[result.tile_classes[r, c]]
-        cap = (
-            f"{cfg['classes']['display'][cls]} — уверенность "
-            f"{100 * result.tile_conf[r, c]:.0f}% (ряд {r + 1}, столбец {c + 1})"
+        out.append(
+            {
+                "crop": base.crop((x0, y0, x1, y1)),
+                "caption": (
+                    f"{cfg['classes']['display'][cls]} — уверенность "
+                    f"{100 * result.tile_conf[r, c]:.0f}% (ряд {r + 1}, столбец {c + 1})"
+                ),
+                "row": int(r),
+                "col": int(c),
+                "pred": cls,
+            }
         )
-        out.append((crop, cap))
     return out

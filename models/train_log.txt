@@ -48,3 +48,24 @@
 2026-07-02 23:28:37,792 INFO orevision.train: part=ch2 n=207 macro-F1=0.9166 acc=0.9130
 2026-07-02 23:28:37,919 INFO orevision.model: Чекпойнт сохранён: C:\Users\user\Documents\my_project\orevision\models\best.pt
 2026-07-02 23:28:38,435 INFO orevision.train: Готово за 6.8 мин. Артефакты: C:\Users\user\Documents\my_project\orevision\models
+2026-07-04 12:38:30,461 INFO orevision.train: device=cuda torch=2.9.1+cu130 classes=['ordinary', 'hard', 'talc']
+2026-07-04 12:38:30,500 INFO orevision.train: train=881 val=221
+2026-07-04 12:38:31,050 INFO orevision.train: Тёплый старт от models\best.pt (efficientnet_v2_s)
+2026-07-04 12:39:31,667 INFO orevision.train: epoch 01/2 loss=0.2813 val macro-F1=0.9219 (ordinary=0.944 hard=0.928 talc=0.894)
+2026-07-04 12:39:43,111 INFO orevision.train: epoch 02/2 loss=0.2391 val macro-F1=0.9267 (ordinary=0.944 hard=0.923 talc=0.913)
+2026-07-04 12:39:45,460 INFO orevision.train: ЛУЧШАЯ эпоха 2: val macro-F1=0.9267
+                       precision    recall  f1-score   support
+
+         Рядовая руда      0.935     0.953     0.944       106
+Труднообогатимая руда      0.933     0.913     0.923        92
+   Оталькованная руда      0.913     0.913     0.913        23
+
+             accuracy                          0.932       221
+            macro avg      0.927     0.926     0.927       221
+         weighted avg      0.932     0.932     0.932       221
+
+2026-07-04 12:39:45,461 INFO orevision.train: part=ch1 n=10 macro-F1=0.8586 acc=0.9000
+2026-07-04 12:39:45,462 INFO orevision.train: part=ch2 n=211 macro-F1=0.9322 acc=0.9336
+2026-07-04 12:39:45,485 INFO orevision.train: Предыдущий чекпойнт заархивирован в C:\Users\user\Documents\my_project\orevision\models\archive
+2026-07-04 12:39:45,608 INFO orevision.model: Чекпойнт сохранён: C:\Users\user\Documents\my_project\orevision\models\best.pt
+2026-07-04 12:39:46,020 INFO orevision.train: Готово за 1.2 мин. Артефакты: C:\Users\user\Documents\my_project\orevision\models

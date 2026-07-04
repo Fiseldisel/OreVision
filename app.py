@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -19,6 +22,11 @@ from orevision.batch import process_batch
 from orevision.cli import collect_inputs
 from orevision.config import load_config
 from orevision.data import open_rgb
+from orevision.feedback import (
+    feedback_stats,
+    native_tile_crop,
+    save_feedback_sample,
+)
 from orevision.predict import Predictor, _tile_origins, rescore
 from orevision.report import metrics_table, result_to_row, save_pdf
 from orevision.viz import (
@@ -130,7 +138,36 @@ def interactive_class_map(overlay: Image.Image, res, cfg: dict):
     return fig
 
 
-def render_result(key: str, entry: dict, cfg: dict, alpha: float) -> None:
+CLASS_PICK_HELP = "Укажите верный класс — участок попадёт в набор дообучения"
+
+
+def _display_to_key(cfg: dict, display: str) -> str:
+    for c in cfg["classes"]["order"]:
+        if cfg["classes"]["display"][c] == display:
+            return c
+    raise KeyError(display)
+
+
+def _save_tile_feedback(entry: dict, cfg: dict, t: dict, label_key: str, ckpt_name: str) -> None:
+    """Сохраняет исправленный тайл; при наличии исходника — в нативном разрешении."""
+    res = entry["result"]
+    img = t["crop"]
+    src = entry.get("src")
+    if src is not None:
+        try:
+            img = native_tile_crop(
+                src, t["row"], t["col"], res.tile, res.stride, tuple(res.analysis_size)
+            )
+        except Exception:
+            pass  # запасной вариант — кроп с display-миниатюры
+    save_feedback_sample(
+        img, label_key, cfg,
+        prev_pred=t["pred"], source=res.source, mode=res.mode,
+        tile=f"{t['row']},{t['col']}", checkpoint=ckpt_name,
+    )
+
+
+def render_result(key: str, entry: dict, cfg: dict, alpha: float, ckpt_name: str = "") -> None:
     res = entry["result"]
     base = res.display_thumb
 
@@ -169,13 +206,33 @@ def render_result(key: str, entry: dict, cfg: dict, alpha: float) -> None:
     with tab_orig:
         st.image(base, width="stretch")
     with tab_doubt:
-        st.caption("Участки с наименьшей уверенностью модели — с них стоит начать ручную проверку шлифа.")
+        st.caption(
+            "Участки с наименьшей уверенностью модели. Если модель ошиблась — "
+            "укажите верный класс и нажмите «В набор дообучения»: это режим "
+            "экспертной проверки (active learning)."
+        )
         tiles = top_uncertain_tiles(base, res, cfg, k=6)
         if tiles:
+            st.session_state.setdefault("fb_saved", set())
+            display_names = [cfg["classes"]["display"][c] for c in cfg["classes"]["order"]]
             cols = st.columns(3)
-            for i, (crop, cap) in enumerate(tiles):
+            for i, t in enumerate(tiles):
+                tile_id = f"{key}|{t['row']}|{t['col']}"
                 with cols[i % 3]:
-                    st.image(crop, caption=cap, width="stretch")
+                    st.image(t["crop"], caption=t["caption"], width="stretch")
+                    if tile_id in st.session_state["fb_saved"]:
+                        st.success("✓ в наборе дообучения")
+                        continue
+                    pick = st.selectbox(
+                        "Верный класс", display_names,
+                        index=cfg["classes"]["order"].index(t["pred"]),
+                        key=f"fbsel_{tile_id}", help=CLASS_PICK_HELP,
+                        label_visibility="collapsed",
+                    )
+                    if st.button("💾 В набор дообучения", key=f"fbbtn_{tile_id}"):
+                        _save_tile_feedback(entry, cfg, t, _display_to_key(cfg, pick), ckpt_name)
+                        st.session_state["fb_saved"].add(tile_id)
+                        st.rerun()
         else:
             st.info("Нет проанализированных участков.")
 
@@ -213,6 +270,58 @@ def render_result(key: str, entry: dict, cfg: dict, alpha: float) -> None:
             z.writestr(f"{stem}_metrics.csv", csv_bytes)
         st.download_button("📦 Всё одним архивом (ZIP)", zbuf.getvalue(),
                            f"{stem}_orevision.zip", "application/zip", key=f"zip_{key}")
+
+    with st.expander("✏️ Экспертная коррекция вердикта (дообучение)"):
+        if res.mode == "photo":
+            st.caption(
+                "Если модель ошиблась с классом всего снимка — укажите верный, "
+                "снимок попадёт в набор дообучения."
+            )
+            display_names = [cfg["classes"]["display"][c] for c in cfg["classes"]["order"]]
+            default_i = (
+                cfg["classes"]["order"].index(res.verdict)
+                if res.verdict in cfg["classes"]["order"] else 0
+            )
+            cor_col, btn_col = st.columns([3, 2])
+            with cor_col:
+                pick = st.selectbox(
+                    "Верный класс снимка", display_names, index=default_i,
+                    key=f"fbphoto_sel_{key}", help=CLASS_PICK_HELP,
+                )
+            with btn_col:
+                st.write("")
+                saved_flag = f"photo|{key}"
+                if saved_flag in st.session_state.get("fb_saved", set()):
+                    st.success("✓ в наборе дообучения")
+                elif st.button("💾 Сохранить пример", key=f"fbphoto_btn_{key}"):
+                    src = entry.get("src")
+                    if isinstance(src, Path):
+                        img = open_rgb(src)
+                    elif isinstance(src, (bytes, bytearray)):
+                        img = ImageOps.exif_transpose(
+                            Image.open(io.BytesIO(src))
+                        ).convert("RGB")
+                    else:
+                        img = base
+                    save_feedback_sample(
+                        img, _display_to_key(cfg, pick), cfg,
+                        prev_pred=res.verdict, source=res.source, mode=res.mode,
+                        checkpoint=ckpt_name,
+                    )
+                    st.session_state.setdefault("fb_saved", set()).add(saved_flag)
+                    st.rerun()
+        else:
+            st.caption(
+                "Для панорамы исправляются отдельные участки — вкладка "
+                "«Спорные участки» выше. Целая панорама как один пример "
+                "обучению не помогает."
+            )
+        stats = feedback_stats(cfg)
+        st.caption(
+            "Собрано примеров: " + " · ".join(
+                f"{cfg['classes']['display'][c]}: **{n}**" for c, n in stats.items()
+            ) + " — дообучение во вкладке «🎓 Дообучение»."
+        )
 
 
 def summary_dataframe(rows: list[dict]) -> tuple[pd.DataFrame, dict]:
@@ -259,14 +368,18 @@ def run_jobs(jobs, predictor: Predictor, cfg: dict, mode: str, ckpt_name: str, t
         try:
             if isinstance(src, Path):
                 im = open_rgb(src)
+                src_keep = src  # путь: нативная вырезка тайлов при коррекции
             else:
-                im = Image.open(io.BytesIO(src.getvalue()))
+                raw = src.getvalue()
+                im = Image.open(io.BytesIO(raw))
                 im = ImageOps.exif_transpose(im)
                 im = im.convert("RGB")
+                # байты храним для экспертной коррекции (кроме гигантских файлов)
+                src_keep = raw if len(raw) < 300 * 1024 * 1024 else None
             res = predictor.predict(im, mode=mode, progress_cb=cb)
             res.source = name
             rescore(res, cfg, talc_thr)
-            st.session_state["results"][cache_key] = {"result": res}
+            st.session_state["results"][cache_key] = {"result": res, "src": src_keep}
             bar.progress(1.0, text=f"{name}: готово за {time.time() - t0:.1f} c")
         except Exception as e:
             bar.empty()
@@ -314,8 +427,8 @@ def main() -> None:
         # чтобы пакетный режим и свежие анализы считались с актуальным значением
         predictor.cfg["infer"]["talc_threshold"] = talc_thr
 
-    tab_an, tab_batch, tab_about = st.tabs(
-        ["🔬 Анализ изображений", "📁 Пакетная обработка", "ℹ️ О модели и данных"]
+    tab_an, tab_batch, tab_learn, tab_about = st.tabs(
+        ["🔬 Анализ изображений", "📁 Пакетная обработка", "🎓 Дообучение", "ℹ️ О модели и данных"]
     )
 
     # ------------------------------------------------------------- анализ
@@ -397,7 +510,7 @@ def main() -> None:
                 "Изображение", names,
                 format_func=lambda k: results[k]["result"].source,
             ) if len(names) > 1 else names[0]
-            render_result(sel, results[sel], cfg, alpha)
+            render_result(sel, results[sel], cfg, alpha, ckpt_name=ckpt.name)
 
             if st.button("🗑 Очистить результаты"):
                 st.session_state["results"].clear()
@@ -462,6 +575,109 @@ def main() -> None:
                     "⬇ summary.csv", pd.DataFrame(rows).to_csv(index=False).encode("utf-8-sig"),
                     "summary.csv", "text/csv", key="batch_csv",
                 )
+
+    # ----------------------------------------------------------- дообучение
+    with tab_learn:
+        st.markdown(
+            "**Режим экспертной проверки (active learning).** Исправленные вами "
+            "примеры (вкладки «Спорные участки» и «Экспертная коррекция») копятся "
+            "в наборе дообучения и включаются в обучение как отдельный источник — "
+            "всегда в train, никогда в валидацию."
+        )
+        stats = feedback_stats(cfg)
+        sc = st.columns(4)
+        for i, (c, n) in enumerate(stats.items()):
+            sc[i].metric(cfg["classes"]["display"][c], n)
+        sc[3].metric("Всего", sum(stats.values()))
+
+        log_path = Path(cfg["data"]["manifest"]).parent / "feedback" / "feedback_log.csv"
+        if log_path.exists():
+            with st.expander("Журнал последних исправлений"):
+                fb_df = pd.read_csv(log_path, encoding="utf-8-sig").tail(10)
+                st.dataframe(fb_df, width="stretch", hide_index=True)
+
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        quick = c1.button(
+            "⚡ Быстрое дообучение (~2 мин)", type="primary",
+            help="Тёплый старт от текущей модели, 6 эпох с малым lr — "
+                 "быстро подхватывает исправления",
+        )
+        full = c2.button(
+            "🔁 Полное переобучение (~8 мин)",
+            help="Обучение с нуля от ImageNet-весов на всех данных + фидбэк",
+        )
+        from orevision.model import list_archives, restore_model
+
+        archives = list_archives(cfg["train"]["out_dir"])
+        if archives and c3.button(
+            "↩ Откатить модель",
+            help=f"Вернуть предыдущую версию ({archives[-1].name}). Текущая "
+                 "модель перед откатом тоже архивируется — действие обратимо.",
+        ):
+            restore_model(cfg["train"]["out_dir"], archives[-1])
+            get_predictor.clear()
+            st.session_state["results"].clear()
+            st.success(
+                f"Восстановлена версия {archives[-1].name}; текущая модель "
+                "сохранена в архив (откат можно отменить повторным откатом)."
+            )
+            st.rerun()
+
+        if quick and sum(stats.values()) == 0:
+            st.warning(
+                "Набор дообучения пуст — быстрому дообучению не на чем учиться. "
+                "Сначала исправьте хотя бы несколько примеров (вкладка "
+                "«Спорные участки» или «Экспертная коррекция»)."
+            )
+        elif quick or full:
+            steps = [["orevision.tools.build_manifest", "--cache"]]
+            if quick:
+                steps.append([
+                    "orevision.train", "--init-from", str(ckpt),
+                    "--epochs", "6", "--lr", "2e-5",
+                ])
+                label = "Быстрое дообучение"
+            else:
+                steps.append(["orevision.train"])
+                label = "Полное переобучение"
+            with st.status(f"{label}: не закрывайте вкладку…", expanded=True) as status:
+                log_area = st.empty()
+                ok = True
+                from collections import deque
+
+                for step in steps:
+                    st.write("`python -m " + " ".join(step) + "`")
+                    proc = subprocess.Popen(
+                        [sys.executable, "-u", "-m", *step],
+                        cwd=str(PROJECT_ROOT),
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, encoding="utf-8", errors="replace",
+                        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                    )
+                    tail: deque[str] = deque(maxlen=14)
+                    for line in proc.stdout:
+                        tail.append(line.rstrip())
+                        log_area.code("\n".join(tail))
+                    if proc.wait() != 0:
+                        ok = False
+                        break
+                if ok:
+                    status.update(label=f"{label}: готово ✅", state="complete")
+                    get_predictor.clear()
+                    st.session_state["results"].clear()
+                    mfile = Path(cfg["train"]["out_dir"]) / "metrics.json"
+                    if mfile.exists():
+                        m = json.loads(mfile.read_text(encoding="utf-8"))
+                        st.success(
+                            f"Новая модель активна. Val macro-F1: "
+                            f"**{m.get('val_macro_f1', 0):.3f}**, "
+                            f"AUC: **{m.get('val_auc_ovr', 0):.3f}**. "
+                            "Предыдущая версия — в models/archive (кнопка отката)."
+                        )
+                else:
+                    status.update(label=f"{label}: ошибка ❌", state="error")
+                    st.error("Обучение завершилось с ошибкой — см. лог выше.")
 
     # ------------------------------------------------------------- о модели
     with tab_about:

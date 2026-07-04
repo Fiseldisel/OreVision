@@ -89,6 +89,11 @@ def main() -> None:
     parser.add_argument("--config", default=None)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--arch", default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument(
+        "--init-from", default=None,
+        help="чекпойнт для тёплого старта (дообучение вместо обучения с нуля)",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -97,6 +102,8 @@ def main() -> None:
         tcfg["epochs"] = args.epochs
     if args.arch:
         tcfg["arch"] = args.arch
+    if args.lr:
+        tcfg["lr"] = args.lr
 
     out_dir = Path(tcfg["out_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -140,7 +147,20 @@ def main() -> None:
         num_workers=nw, pin_memory=True, persistent_workers=nw > 0,
     )
 
-    model = build_model(tcfg["arch"], num_classes=len(classes), pretrained=True).to(device)
+    if args.init_from:
+        # дообучение: тёплый старт от существующего чекпойнта (active learning)
+        import orevision.model as _m
+
+        model, init_info = _m.load_checkpoint(args.init_from, device)
+        assert init_info["classes"] == classes, "классы чекпойнта не совпадают с конфигом"
+        assert init_info["arch"] == tcfg["arch"] or not args.arch, (
+            "архитектура чекпойнта не совпадает с --arch"
+        )
+        tcfg["arch"] = init_info["arch"]
+        model.train()
+        log.info("Тёплый старт от %s (%s)", args.init_from, init_info["arch"])
+    else:
+        model = build_model(tcfg["arch"], num_classes=len(classes), pretrained=True).to(device)
     criterion = nn.CrossEntropyLoss(label_smoothing=float(tcfg["label_smoothing"]))
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=float(tcfg["lr"]), weight_decay=float(tcfg["weight_decay"])
@@ -237,6 +257,11 @@ def main() -> None:
         "n_train": len(ds_train),
         "n_val": len(ds_val),
     }
+
+    # предыдущая модель (с метриками) уходит в архив — обучение всегда обратимо
+    from orevision.model import archive_model
+
+    archive_model(out_dir)
 
     save_checkpoint(
         out_dir / "best.pt", model, tcfg["arch"], classes, img_size,
