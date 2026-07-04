@@ -190,16 +190,32 @@ def render_result(key: str, entry: dict, cfg: dict, alpha: float, ckpt_name: str
     with tab_ov:
         st.markdown(html_legend(cfg), unsafe_allow_html=True)
         try:
-            st.plotly_chart(
-                interactive_class_map(overlay, res, cfg),
-                config={"scrollZoom": True, "displaylogo": False},
-            )
-            st.caption(
-                "Наведите курсор на участок — вероятности классов по тайлу; "
-                "колесо мыши — зум, перетаскивание — панорамирование."
-            )
+            import plotly  # noqa: F401
+
+            has_plotly = True
         except ImportError:
+            has_plotly = False
+        if has_plotly:
+            try:
+                st.plotly_chart(
+                    interactive_class_map(overlay, res, cfg),
+                    config={"scrollZoom": True, "displaylogo": False},
+                )
+                st.caption(
+                    "Наведите курсор на участок — вероятности классов по тайлу; "
+                    "колесо мыши — зум, перетаскивание — панорамирование."
+                )
+            except Exception as e:  # runtime-сбой plotly не должен ронять вкладку
+                st.image(overlay, width="stretch")
+                st.warning(f"Интерактивная карта недоступна ({e}); показана статичная.")
+        else:
+            # без plotly подсказки при наведении не работают — сообщаем явно,
+            # а не выдаём статичную картинку за «так и задумано»
             st.image(overlay, width="stretch")
+            st.info(
+                "Подсказки при наведении и зум требуют пакета **plotly**. "
+                "Установите его и перезапустите приложение:  `pip install plotly`"
+            )
     with tab_conf:
         st.caption("Жёлтые участки — модель уверена; тёмно-синие — спорные, стоит проверить глазами.")
         st.image(conf_map, width="stretch")
