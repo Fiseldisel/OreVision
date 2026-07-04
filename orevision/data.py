@@ -88,18 +88,112 @@ class _UnionFind:
 
 # ----------------------------------------------------------- построение манифеста
 
+# Распознаваемые имена подпапок для «своего» датасета: <root>/<класс>/*.jpg
+CLASS_DIR_ALIASES = {
+    "ordinary": ("ordinary", "рядовая", "рядовые"),
+    "hard": ("hard", "труднообогатимая", "труднообогатимые", "тонкие"),
+    "talc": ("talc", "оталькованная", "оталькованные", "тальк"),
+}
+
+
+def _dir_class(name: str) -> str | None:
+    n = name.strip().lower()
+    for key, aliases in CLASS_DIR_ALIASES.items():
+        for a in aliases:
+            if n == a or n.startswith((a + " ", a + "_", a + "-")):
+                return key
+    return None
+
+
+def _count_images(d: Path) -> int:
+    return sum(1 for p in d.iterdir() if p.is_file() and p.suffix.lower() in IMG_EXTS)
+
+
+def resolve_training_sources(cfg: dict) -> dict:
+    """Гибко находит обучающий датасет.
+
+    Порядок: (1) источники из config.yaml (структура датасета хакатона) —
+    достаточно, чтобы присутствовали папки всех трёх классов; (2) «свой»
+    датасет: подпапки root с именами классов (см. CLASS_DIR_ALIASES).
+
+    Возвращает {"root", "layout": configured|generic|None, "sources",
+    "counts": {класс: файлов}, "problems": [строки]}.
+    """
+    order = list(cfg["classes"]["order"])
+    root = Path(cfg["data"]["root"])
+    info = {"root": root, "layout": None, "sources": [], "counts": {}, "problems": []}
+    if not root.is_dir():
+        info["problems"].append(f"папка датасета не существует: {root}")
+        return info
+
+    # 1) структура из config.yaml
+    configured = [s for s in cfg["data"]["sources"] if (root / s["dir"]).is_dir()]
+    if configured and {s["class"] for s in configured} == set(order):
+        missing = [s["dir"] for s in cfg["data"]["sources"] if s not in configured]
+        if missing:
+            log.warning("Часть источников отсутствует (используем найденные): %s", missing)
+        info["layout"] = "configured"
+        info["sources"] = configured
+    else:
+        # 2) свой датасет: папки по именам классов
+        generic = []
+        for d in sorted(root.iterdir()):
+            if d.is_dir() and (cls := _dir_class(d.name)):
+                generic.append({"dir": d.name, "class": cls, "part": "custom"})
+        found = {s["class"] for s in generic}
+        if found == set(order):
+            info["layout"] = "generic"
+            info["sources"] = generic
+        else:
+            lack = [c for c in order if c not in found]
+            names = "; ".join(
+                f"{cfg['classes']['display'][c]}: {', '.join(CLASS_DIR_ALIASES[c])}"
+                for c in lack
+            )
+            info["problems"].append(
+                "не найдены подпапки классов — ожидались имена ("
+                + names + ") либо структура из config.yaml"
+            )
+            return info
+
+    for cls in order:
+        info["counts"][cls] = sum(
+            _count_images(root / s["dir"]) for s in info["sources"] if s["class"] == cls
+        )
+    empty = [c for c in order if info["counts"][c] == 0]
+    if empty:
+        info["problems"].append(
+            "нет изображений в классах: "
+            + ", ".join(cfg["classes"]["display"][c] for c in empty)
+        )
+        info["layout"] = None
+        info["sources"] = []
+    return info
+
+
 def scan_sources(cfg: dict) -> pd.DataFrame:
     """Обходит папки-источники и собирает базовую таблицу файлов.
 
-    Дополнительно подхватывает примеры, исправленные экспертом в интерфейсе
+    Структура датасета находится гибко (см. resolve_training_sources).
+    Дополнительно подхватываются примеры, исправленные экспертом в интерфейсе
     (data/feedback/<класс>/, part="feedback") — механизм active learning.
     """
     root = Path(cfg["data"]["root"])
+    resolved = resolve_training_sources(cfg)
+    if not resolved["sources"]:
+        raise FileNotFoundError(
+            "Обучающий датасет не найден: " + "; ".join(resolved["problems"])
+            + ". Путь настраивается в config.yaml -> data.root "
+            "(или в config.local.yaml / через вкладку «Дообучение»)."
+        )
+    log.info(
+        "Датасет: %s (структура: %s, классы: %s)",
+        root, resolved["layout"],
+        ", ".join(f"{c}={n}" for c, n in resolved["counts"].items()),
+    )
     rows = []
-    for src in cfg["data"]["sources"]:
+    for src in resolved["sources"]:
         d = root / src["dir"]
-        if not d.is_dir():
-            raise FileNotFoundError(f"Нет папки источника: {d}")
         for p in sorted(d.iterdir()):
             # вложенные папки (например segmentation(...)) не сканируем
             if p.is_file() and p.suffix.lower() in IMG_EXTS:

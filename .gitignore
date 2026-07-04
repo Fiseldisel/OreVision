@@ -2,6 +2,9 @@
 .claude/
 .streamlit/secrets.toml
 
+# машинно-специфичные настройки (путь к датасету и т.п.)
+config.local.yaml
+
 # python
 __pycache__/
 *.pyc
@@ -21,6 +24,10 @@ models/archive/
 # рабочие материалы для записи видео
 demo_video/
 docs/VIDEO_PLAN.md
+docs/VIDEO_PLAN.pdf
+
+# lock-файлы Office
+~$*
 
 # веса модели НАМЕРЕННО в репозитории (models/best.pt, ~80 МБ < лимита GitHub 100 МБ):
 # жюри получает готовое решение без обучения

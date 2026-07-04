@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Конвертация руководства пользователя (markdown) в PDF через headless Edge."""
+"""Конвертация markdown в PDF через headless Edge.
 
+По умолчанию собирает руководство пользователя. Можно указать другой
+файл аргументом: ``python md2pdf.py VIDEO_PLAN.md``.
+"""
+
+import re
 import subprocess
 import sys
 import tempfile
@@ -9,8 +14,10 @@ from pathlib import Path
 import markdown
 
 HERE = Path(__file__).parent
-SRC = HERE / "РУКОВОДСТВО_ПОЛЬЗОВАТЕЛЯ.md"
-DST = HERE / "РУКОВОДСТВО_ПОЛЬЗОВАТЕЛЯ.pdf"
+SRC = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "РУКОВОДСТВО_ПОЛЬЗОВАТЕЛЯ.md"
+if not SRC.is_absolute():
+    SRC = (HERE / SRC).resolve()
+DST = SRC.with_suffix(".pdf")
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 CSS = """
@@ -52,12 +59,14 @@ strong { color: #23272e; }
 """
 
 md_text = SRC.read_text(encoding="utf-8")
+m = re.search(r"^#\s+(.+)$", md_text, flags=re.MULTILINE)
+title = m.group(1).strip() if m else SRC.stem
 body = markdown.markdown(
     md_text, extensions=["tables", "fenced_code", "sane_lists"]
 )
 html = (
     "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-    f"<title>OreVision — руководство пользователя</title><style>{CSS}</style>"
+    f"<title>{title}</title><style>{CSS}</style>"
     f"</head><body>{body}"
     "<p class='footer-note'>OreVision · github.com/Fiseldisel/OreVision</p>"
     "</body></html>"

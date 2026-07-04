@@ -613,14 +613,66 @@ def main() -> None:
                 st.dataframe(fb_df, width="stretch", hide_index=True)
 
         st.divider()
+
+        # обучение возможно только там, где лежит обучающий датасет: фидбэк
+        # подмешивается к нему, на 1-5 исправлениях модель не дообучить
+        from orevision.config import save_local_override
+        from orevision.data import resolve_training_sources
+
+        ds = resolve_training_sources(cfg)
+        can_train = bool(ds["sources"])
+        if can_train:
+            st.caption(
+                f"Датасет: `{ds['root']}` · " + " · ".join(
+                    f"{cfg['classes']['display'][c].split()[0].lower()}: {n}"
+                    for c, n in ds["counts"].items()
+                ) + (" · структура: своя (папки-классы)" if ds["layout"] == "generic" else "")
+            )
+        else:
+            st.error(
+                "**Дообучение на этой машине пока недоступно** — "
+                + "; ".join(ds["problems"]) + ".\n\n"
+                "Обучение использует обучающий датасет плюс ваши исправления "
+                "(на нескольких исправлениях в отрыве от датасета модель не дообучить). "
+                "Сбор исправлений при этом работает — они копятся в `data/feedback/`, "
+                "и папку можно перенести на машину с датасетом."
+            )
+            with st.expander("📂 Указать путь к датасету", expanded=True):
+                st.markdown(
+                    "Подойдёт **датасет хакатона** (папка «Задача 3. Скажи мне, кто твой "
+                    "шлиф») **или свой набор** — папка с тремя подпапками по классам "
+                    "(`рядовые`/`ordinary`, `тонкие`/`hard`, `оталькованные`/`talc`; "
+                    "внутри JPG/PNG/TIFF/BMP, рекомендуем от 30 фото на класс)."
+                )
+                new_root = st.text_input(
+                    "Путь к папке датасета", key="ds_root_input",
+                    placeholder=r"D:\данные\Задача 3. Скажи мне, кто твой шлиф",
+                )
+                if st.button("Проверить и сохранить", key="ds_root_save"):
+                    probe_cfg = {**cfg, "data": {**cfg["data"], "root": new_root.strip()}}
+                    probe = resolve_training_sources(probe_cfg)
+                    if probe["sources"]:
+                        save_local_override(
+                            cfg, {"data": {"root": new_root.strip()}}
+                        )
+                        st.success(
+                            "Датасет найден ("
+                            + ", ".join(f"{c}: {n}" for c, n in probe["counts"].items())
+                            + "). Путь сохранён в config.local.yaml."
+                        )
+                        st.rerun()
+                    else:
+                        st.error("Не похоже на датасет: " + "; ".join(probe["problems"]))
         c1, c2, c3 = st.columns(3)
         quick = c1.button(
             "⚡ Быстрое дообучение (~2 мин)", type="primary",
+            disabled=not can_train,
             help="Тёплый старт от текущей модели, 6 эпох с малым lr — "
                  "быстро подхватывает исправления",
         )
         full = c2.button(
             "🔁 Полное переобучение (~8 мин)",
+            disabled=not can_train,
             help="Обучение с нуля от ImageNet-весов на всех данных + фидбэк",
         )
         from orevision.model import list_archives, restore_model
