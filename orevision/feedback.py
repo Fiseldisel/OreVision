@@ -95,6 +95,39 @@ def feedback_stats(cfg: dict) -> dict:
     }
 
 
+def delete_feedback_samples(cfg: dict, saved_as: list[str]) -> int:
+    """Удаляет выбранные примеры (пути вида 'класс/имя.jpg') и строки журнала."""
+    import pandas as pd
+
+    root = feedback_root(cfg)
+    removed = 0
+    for rel in saved_as:
+        p = (root / rel).resolve()
+        # защита от выхода за пределы папки фидбэка (например '../..' в журнале)
+        if root.resolve() not in p.parents:
+            continue
+        if p.exists():
+            p.unlink()
+            removed += 1
+    log = root / LOG_NAME
+    if log.exists():
+        df = pd.read_csv(log, encoding="utf-8-sig")
+        df = df[~df["saved_as"].isin(set(saved_as))]
+        df.to_csv(log, index=False, encoding="utf-8-sig")
+    return removed
+
+
+def clear_feedback(cfg: dict) -> int:
+    """Полностью очищает набор дообучения. Возвращает число удалённых примеров."""
+    import shutil
+
+    n = sum(feedback_stats(cfg).values())
+    root = feedback_root(cfg)
+    if root.is_dir():
+        shutil.rmtree(root)
+    return n
+
+
 def feedback_sources(cfg: dict) -> list[dict]:
     """Источники для сканера датасета — только непустые классы."""
     root = feedback_root(cfg)

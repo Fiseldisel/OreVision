@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import torch
@@ -84,60 +85,67 @@ def pick_device() -> torch.device:
 
 # ------------------------------------------------- версии модели (архив/откат)
 
-MODEL_ARTIFACTS = [
-    "best.pt",
-    "metrics.json",
-    "history.json",
-    "classification_report.txt",
-    "confusion_matrix.png",
-]
+BASE_CHECKPOINT = "base.pt"          # базовая (заводская) модель
+# суффиксы производных моделей: base_дообученная.pt, base_переобученная.pt, ...
+SUFFIX_FINETUNE = "_дообученная"      # быстрое дообучение (тёплый старт)
+SUFFIX_RETRAIN = "_переобученная"     # полное переобучение с нуля
+_ANY_SUFFIX = re.compile(rf"({SUFFIX_FINETUNE}|{SUFFIX_RETRAIN})(_\d+)?$")
 
 
-def archive_model(models_dir: str | Path) -> Path | None:
-    """Складывает текущую модель СО ВСЕМИ артефактами в models/archive/<ts>/.
+def migrate_legacy_checkpoint(models_dir: str | Path) -> Path | None:
+    """Совместимость: если базовой base.pt нет, но есть старый best.pt —
+    копируем его в base.pt (best.pt не трогаем). Возвращает путь base.pt."""
+    import shutil
 
-    Возвращает путь архива либо None, если архивировать нечего.
+    models_dir = Path(models_dir)
+    base = models_dir / BASE_CHECKPOINT
+    legacy = models_dir / "best.pt"
+    if not base.exists() and legacy.exists():
+        shutil.copy2(legacy, base)
+        log.info("Базовая модель создана из best.pt: %s", base)
+    return base if base.exists() else None
+
+
+def default_checkpoint(models_dir: str | Path) -> Path:
+    """Путь к базовой модели; понимает старое имя best.pt для совместимости."""
+    models_dir = Path(models_dir)
+    base = models_dir / BASE_CHECKPOINT
+    legacy = models_dir / "best.pt"
+    return base if base.exists() or not legacy.exists() else legacy
+
+
+def next_output_name(models_dir: str | Path, base_ckpt: str | Path, suffix: str) -> Path:
+    """Имя нового производного чекпойнта: <корень>_<суффикс>.pt, далее _2, _3…
+
+    Корень берётся без уже имеющегося суффикса — повторное дообучение даёт
+    base_дообученная_2, а не base_дообученная_дообученная.
     """
-    import shutil
-    import time as _t
-
+    stem = _ANY_SUFFIX.sub("", Path(base_ckpt).stem)
     models_dir = Path(models_dir)
-    if not (models_dir / "best.pt").exists():
-        return None
-    dst = models_dir / "archive" / _t.strftime("%Y%m%d_%H%M%S")
-    dst.mkdir(parents=True, exist_ok=True)
-    for name in MODEL_ARTIFACTS:
-        src = models_dir / name
-        if src.exists():
-            shutil.copy2(src, dst / name)
-    log.info("Модель заархивирована: %s", dst)
-    return dst
+    cand = models_dir / f"{stem}{suffix}.pt"
+    n = 2
+    while cand.exists():
+        cand = models_dir / f"{stem}{suffix}_{n}.pt"
+        n += 1
+    return cand
 
 
-def list_archives(models_dir: str | Path) -> list[Path]:
-    """Архивные версии, новые в конце. Поддерживает и старый плоский формат."""
-    arch = Path(models_dir) / "archive"
-    if not arch.is_dir():
-        return []
-    dirs = [d for d in arch.iterdir() if d.is_dir() and (d / "best.pt").exists()]
-    flat = [f for f in arch.glob("best_*.pt")]  # старый формат: только веса
-    return sorted(dirs + flat, key=lambda p: p.name)
-
-
-def restore_model(models_dir: str | Path, archive: str | Path) -> Path | None:
-    """Откат к архивной версии. Текущая модель СНАЧАЛА архивируется —
-    откат всегда обратим. Возвращает путь архива текущей модели."""
-    import shutil
-
+def list_checkpoints(models_dir: str | Path) -> list[Path]:
+    """Все чекпойнты в models/, базовая base.pt — первой."""
     models_dir = Path(models_dir)
-    archive = Path(archive)
-    backup = archive_model(models_dir)
-    if archive.is_dir():
-        for name in MODEL_ARTIFACTS:
-            src = archive / name
-            if src.exists():
-                shutil.copy2(src, models_dir / name)
-    else:  # плоский .pt старого формата — восстанавливаются только веса
-        shutil.copy2(archive, models_dir / "best.pt")
-    log.info("Восстановлена версия %s (текущая сохранена в %s)", archive.name, backup)
-    return backup
+    pts = [p for p in models_dir.glob("*.pt")]
+    return sorted(pts, key=lambda p: (p.name != BASE_CHECKPOINT, p.name.lower()))
+
+
+def is_base_checkpoint(path: str | Path) -> bool:
+    return Path(path).name in (BASE_CHECKPOINT, "best.pt")
+
+
+def delete_checkpoint(path: str | Path) -> bool:
+    """Удаляет производный чекпойнт. Базовую модель удалить нельзя."""
+    path = Path(path)
+    if is_base_checkpoint(path) or not path.exists():
+        return False
+    path.unlink()
+    log.info("Чекпойнт удалён: %s", path)
+    return True

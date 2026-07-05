@@ -2,8 +2,11 @@
 
 Запуск:  python -m orevision.train [--config config.yaml] [--epochs N]
 
+Имя результата задаётся --out-name (по умолчанию base.pt — базовая модель;
+дообучение из интерфейса пишет base_дообученная.pt и т.п.).
+
 Артефакты в models/:
-  best.pt                — лучший чекпойнт (по val macro-F1)
+  <out-name>.pt          — веса модели (по умолчанию base.pt)
   metrics.json           — метрики лучшей эпохи + разбивка по классам и частям
   history.json           — кривые обучения
   confusion_matrix.png   — матрица ошибок на валидации
@@ -62,24 +65,12 @@ def evaluate(model, loader, device) -> tuple[np.ndarray, np.ndarray, np.ndarray]
 
 
 def plot_confusion(cm: np.ndarray, labels: list[str], path: Path) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(5.5, 4.5))
-    im = ax.imshow(cm, cmap="Blues")
-    ax.set_xticks(range(len(labels)), labels, rotation=30, ha="right")
-    ax.set_yticks(range(len(labels)), labels)
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            ax.text(j, i, str(cm[i, j]), ha="center", va="center",
-                    color="white" if cm[i, j] > cm.max() / 2 else "black")
-    ax.set_xlabel("Предсказано")
-    ax.set_ylabel("Истина")
-    ax.set_title("Матрица ошибок (val)")
-    fig.colorbar(im, fraction=0.046)
-    fig.tight_layout()
+    from orevision.viz import confusion_matrix_figure
+
+    fig = confusion_matrix_figure(cm, labels)
+    fig.axes[0].set_title("Матрица ошибок (val)")
     fig.savefig(path, dpi=150)
     plt.close(fig)
 
@@ -93,6 +84,10 @@ def main() -> None:
     parser.add_argument(
         "--init-from", default=None,
         help="чекпойнт для тёплого старта (дообучение вместо обучения с нуля)",
+    )
+    parser.add_argument(
+        "--out-name", default="base.pt",
+        help="имя файла результата в models/ (по умолчанию base.pt)",
     )
     args = parser.parse_args()
 
@@ -258,13 +253,12 @@ def main() -> None:
         "n_val": len(ds_val),
     }
 
-    # предыдущая модель (с метриками) уходит в архив — обучение всегда обратимо
-    from orevision.model import archive_model
-
-    archive_model(out_dir)
-
+    # результат сохраняется отдельным файлом (base.pt для базовой модели,
+    # base_дообученная.pt и т.п. для производных) — базовая никогда не
+    # перезаписывается дообучением, версии сосуществуют в списке чекпойнтов
+    out_name = args.out_name if args.out_name.endswith(".pt") else args.out_name + ".pt"
     save_checkpoint(
-        out_dir / "best.pt", model, tcfg["arch"], classes, img_size,
+        out_dir / out_name, model, tcfg["arch"], classes, img_size,
         meta={"metrics": metrics, "config": snapshot(cfg), "torch": str(torch.__version__)},
     )
     (out_dir / "metrics.json").write_text(
@@ -275,6 +269,7 @@ def main() -> None:
     )
     (out_dir / "classification_report.txt").write_text(report_txt, encoding="utf-8")
     plot_confusion(cm, display, out_dir / "confusion_matrix.png")
+    log.info("Модель сохранена: %s", out_dir / out_name)
     log.info("Готово за %.1f мин. Артефакты: %s", (time.time() - t0) / 60, out_dir)
 
 

@@ -43,7 +43,7 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--input", required=True, help="файл или папка с изображениями")
-    parser.add_argument("--checkpoint", default=None, help="путь к .pt (по умолчанию models/best.pt)")
+    parser.add_argument("--checkpoint", default=None, help="путь к .pt (по умолчанию models/base.pt)")
     parser.add_argument("--out", default=None, help="папка результатов (по умолчанию results/<дата>)")
     parser.add_argument("--mode", default="auto", choices=["auto", "photo", "panorama"])
     parser.add_argument("--config", default=None)
@@ -53,7 +53,10 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    ckpt = Path(args.checkpoint) if args.checkpoint else Path(cfg["train"]["out_dir"]) / "best.pt"
+    from orevision.model import default_checkpoint, migrate_legacy_checkpoint
+
+    migrate_legacy_checkpoint(cfg["train"]["out_dir"])
+    ckpt = Path(args.checkpoint) if args.checkpoint else default_checkpoint(cfg["train"]["out_dir"])
     if not ckpt.exists():
         sys.exit(f"Чекпойнт не найден: {ckpt}. Сначала обучите модель: python -m orevision.train")
 

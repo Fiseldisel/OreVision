@@ -413,18 +413,39 @@ def main() -> None:
 
     # ---------------------------------------------------------------- sidebar
     with st.sidebar:
+        from orevision.model import (
+            BASE_CHECKPOINT,
+            list_checkpoints,
+            migrate_legacy_checkpoint,
+        )
+
         st.header("Модель")
         models_dir = Path(cfg["train"]["out_dir"])
-        ckpts = sorted(models_dir.glob("*.pt"))
+        migrate_legacy_checkpoint(models_dir)  # best.pt -> base.pt (совместимость)
+        ckpts = list_checkpoints(models_dir)   # base.pt первой
         if not ckpts:
             st.error(f"Нет чекпойнтов в {models_dir}. Обучите модель: `python -m orevision.train`")
             st.stop()
-        ckpt = st.selectbox("Чекпойнт", ckpts, format_func=lambda p: p.name)
+        names = [p.name for p in ckpts]
+        # после дообучения новая модель выбирается автоматически
+        want = st.session_state.pop("select_ckpt", None)
+        if "ckpt_select" not in st.session_state or st.session_state["ckpt_select"] not in names:
+            st.session_state["ckpt_select"] = names[0]
+        if want in names:
+            st.session_state["ckpt_select"] = want
+        ckpt_name = st.selectbox(
+            "Чекпойнт", names, key="ckpt_select",
+            help=f"«{BASE_CHECKPOINT}» — базовая модель; «…_дообученная» / "
+                 "«…_переобученная» — обученные вами версии. Выбор здесь и есть "
+                 "переключение активной модели (в т.ч. возврат к базовой).",
+        )
+        ckpt = models_dir / ckpt_name
         predictor = get_predictor(str(ckpt))
+        kind = "базовая" if ckpt_name in (BASE_CHECKPOINT, "best.pt") else "дообученная"
         meta_metrics = predictor.info.get("meta", {}).get("metrics", {})
         if meta_metrics:
             st.caption(
-                f"val macro-F1: **{meta_metrics.get('val_macro_f1', 0):.3f}** · "
+                f"{kind} · val macro-F1: **{meta_metrics.get('val_macro_f1', 0):.3f}** · "
                 f"устройство: `{predictor.device}`"
             )
 
@@ -594,6 +615,8 @@ def main() -> None:
 
     # ----------------------------------------------------------- дообучение
     with tab_learn:
+        if done_msg := st.session_state.pop("train_done_msg", None):
+            st.success(done_msg)
         st.markdown(
             "**Режим экспертной проверки (active learning).** Исправленные вами "
             "примеры (вкладки «Спорные участки» и «Экспертная коррекция») копятся "
@@ -606,11 +629,40 @@ def main() -> None:
             sc[i].metric(cfg["classes"]["display"][c], n)
         sc[3].metric("Всего", sum(stats.values()))
 
+        from orevision.feedback import clear_feedback, delete_feedback_samples
+
         log_path = Path(cfg["data"]["manifest"]).parent / "feedback" / "feedback_log.csv"
-        if log_path.exists():
-            with st.expander("Журнал последних исправлений"):
-                fb_df = pd.read_csv(log_path, encoding="utf-8-sig").tail(10)
-                st.dataframe(fb_df, width="stretch", hide_index=True)
+        if log_path.exists() and sum(stats.values()) > 0:
+            with st.expander("Журнал исправлений (здесь же можно удалять)"):
+                fb_df = pd.read_csv(log_path, encoding="utf-8-sig")
+                view = fb_df.iloc[::-1].reset_index(drop=True)  # свежие сверху
+                event = st.dataframe(
+                    view, width="stretch", hide_index=True,
+                    on_select="rerun", selection_mode="multi-row",
+                    key="fb_log_table",
+                )
+                picked = list(getattr(event.selection, "rows", []) or [])
+                dc1, dc2, _ = st.columns([2, 2, 3])
+                if dc1.button(
+                    f"🗑 Удалить выбранные ({len(picked)})",
+                    disabled=not picked, key="fb_del_sel",
+                ):
+                    n = delete_feedback_samples(
+                        cfg, view.iloc[picked]["saved_as"].tolist()
+                    )
+                    # снять отметки «✓ в наборе», чтобы участок можно было
+                    # сохранить заново с правильным классом
+                    st.session_state.pop("fb_saved", None)
+                    st.toast(f"Удалено примеров: {n}")
+                    st.rerun()
+                confirm = dc2.checkbox("подтверждаю", key="fb_clear_confirm")
+                if dc2.button(
+                    "🗑 Очистить весь набор", disabled=not confirm, key="fb_clear_all",
+                ):
+                    n = clear_feedback(cfg)
+                    st.session_state.pop("fb_saved", None)
+                    st.toast(f"Набор дообучения очищен ({n} примеров)")
+                    st.rerun()
 
         st.divider()
 
@@ -663,33 +715,43 @@ def main() -> None:
                         st.rerun()
                     else:
                         st.error("Не похоже на датасет: " + "; ".join(probe["problems"]))
+        from orevision.model import (
+            BASE_CHECKPOINT,
+            SUFFIX_FINETUNE,
+            SUFFIX_RETRAIN,
+            delete_checkpoint,
+            is_base_checkpoint,
+            next_output_name,
+        )
+
+        st.caption(
+            f"Активная модель: **{ckpt.name}**. Обучение создаёт **новый** чекпойнт "
+            f"(«…{SUFFIX_FINETUNE}» / «…{SUFFIX_RETRAIN}») — базовая `{BASE_CHECKPOINT}` "
+            "не меняется. Чтобы вернуться к базовой, просто выберите её в списке "
+            "чекпойнтов слева."
+        )
         c1, c2, c3 = st.columns(3)
         quick = c1.button(
-            "⚡ Быстрое дообучение (~2 мин)", type="primary",
-            disabled=not can_train,
-            help="Тёплый старт от текущей модели, 6 эпох с малым lr — "
-                 "быстро подхватывает исправления",
+            "⚡ Быстрое дообучение", type="primary", disabled=not can_train,
+            help="Тёплый старт от активной модели, несколько эпох с малым lr — "
+                 "быстро подхватывает исправления. Результат: новый файл …_дообученная.pt",
         )
         full = c2.button(
-            "🔁 Полное переобучение (~8 мин)",
-            disabled=not can_train,
-            help="Обучение с нуля от ImageNet-весов на всех данных + фидбэк",
+            "🔁 Полное переобучение", disabled=not can_train,
+            help="Обучение с нуля от ImageNet-весов на всех данных + исправления. "
+                 "Результат: новый файл …_переобученная.pt",
         )
-        from orevision.model import list_archives, restore_model
-
-        archives = list_archives(cfg["train"]["out_dir"])
-        if archives and c3.button(
-            "↩ Откатить модель",
-            help=f"Вернуть предыдущую версию ({archives[-1].name}). Текущая "
-                 "модель перед откатом тоже архивируется — действие обратимо.",
+        # удаление лишней производной версии (базовую удалить нельзя)
+        if not is_base_checkpoint(ckpt) and c3.button(
+            "🗑 Удалить эту версию",
+            help=f"Удалить активную модель «{ckpt.name}» из списка. "
+                 f"Базовая `{BASE_CHECKPOINT}` не затрагивается.",
         ):
-            restore_model(cfg["train"]["out_dir"], archives[-1])
+            delete_checkpoint(ckpt)
             get_predictor.clear()
-            st.session_state["results"].clear()
-            st.success(
-                f"Восстановлена версия {archives[-1].name}; текущая модель "
-                "сохранена в архив (откат можно отменить повторным откатом)."
-            )
+            st.session_state["select_ckpt"] = BASE_CHECKPOINT
+            st.session_state.get("results", {}).clear()
+            st.toast(f"Удалено: {ckpt.name}. Активна базовая модель.")
             st.rerun()
 
         if quick and sum(stats.values()) == 0:
@@ -699,16 +761,19 @@ def main() -> None:
                 "«Спорные участки» или «Экспертная коррекция»)."
             )
         elif quick or full:
-            steps = [["orevision.tools.build_manifest", "--cache"]]
+            models_dir = Path(cfg["train"]["out_dir"])
             if quick:
-                steps.append([
+                out_path = next_output_name(models_dir, ckpt, SUFFIX_FINETUNE)
+                train_step = [
                     "orevision.train", "--init-from", str(ckpt),
-                    "--epochs", "6", "--lr", "2e-5",
-                ])
+                    "--out-name", out_path.name, "--epochs", "6", "--lr", "2e-5",
+                ]
                 label = "Быстрое дообучение"
             else:
-                steps.append(["orevision.train"])
+                out_path = next_output_name(models_dir, BASE_CHECKPOINT, SUFFIX_RETRAIN)
+                train_step = ["orevision.train", "--out-name", out_path.name]
                 label = "Полное переобучение"
+            steps = [["orevision.tools.build_manifest", "--cache"], train_step]
             with st.status(f"{label}: не закрывайте вкладку…", expanded=True) as status:
                 log_area = st.empty()
                 ok = True
@@ -730,19 +795,29 @@ def main() -> None:
                     if proc.wait() != 0:
                         ok = False
                         break
-                if ok:
+                if ok and out_path.exists():
                     status.update(label=f"{label}: готово ✅", state="complete")
                     get_predictor.clear()
                     st.session_state["results"].clear()
-                    mfile = Path(cfg["train"]["out_dir"]) / "metrics.json"
-                    if mfile.exists():
-                        m = json.loads(mfile.read_text(encoding="utf-8"))
-                        st.success(
-                            f"Новая модель активна. Val macro-F1: "
-                            f"**{m.get('val_macro_f1', 0):.3f}**, "
-                            f"AUC: **{m.get('val_auc_ovr', 0):.3f}**. "
-                            "Предыдущая версия — в models/archive (кнопка отката)."
+                    st.session_state["select_ckpt"] = out_path.name  # авто-выбор новой
+                    try:
+                        m = json.loads(
+                            (models_dir / "metrics.json").read_text(encoding="utf-8")
                         )
+                        quality = (
+                            f"Val macro-F1: **{m.get('val_macro_f1', 0):.3f}**, "
+                            f"AUC: **{m.get('val_auc_ovr', 0):.3f}**. "
+                        )
+                    except Exception:
+                        quality = ""
+                    # сообщение показывается ПОСЛЕ rerun — иначе rerun его съедает
+                    st.session_state["train_done_msg"] = (
+                        f"Готово: создана модель **{out_path.name}** и выбрана "
+                        f"активной. {quality}Базовая `{BASE_CHECKPOINT}` осталась "
+                        "в списке — переключайтесь в сайдбаре в любой момент. "
+                        "Полный лог обучения: models/train_log.txt"
+                    )
+                    st.rerun()
                 else:
                     status.update(label=f"{label}: ошибка ❌", state="error")
                     st.error("Обучение завершилось с ошибкой — см. лог выше.")
@@ -752,11 +827,14 @@ def main() -> None:
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Качество модели (валидация)")
-            mfile = Path(cfg["train"]["out_dir"]) / "metrics.json"
-            if mfile.exists():
-                m = json.loads(mfile.read_text(encoding="utf-8"))
+            st.caption(f"Активный чекпойнт: **{ckpt.name}** ({kind})")
+            # ВСЁ (числа и матрица ошибок) — из meta выбранной модели; глобальные
+            # metrics.json/confusion_matrix.png описывают лишь последнее обучение
+            # и после дообучения не совпадали бы с выбором в сайдбаре
+            m = predictor.info.get("meta", {}).get("metrics", {})
+            if m:
                 mc1, mc2 = st.columns(2)
-                mc1.metric("Macro-F1", f"{m['val_macro_f1']:.3f}")
+                mc1.metric("Macro-F1", f"{m.get('val_macro_f1', 0):.3f}")
                 if "val_auc_ovr" in m:
                     mc2.metric("ROC-AUC (ovr)", f"{m['val_auc_ovr']:.3f}")
                 per_class = m.get("per_class_f1", {})
@@ -775,14 +853,26 @@ def main() -> None:
                         pd.DataFrame(
                             {
                                 "Часть": list(per_part),
-                                "n": [p["n"] for p in per_part.values()],
-                                "Macro-F1": [f"{p['macro_f1']:.3f}" for p in per_part.values()],
+                                "n": [p.get("n", 0) for p in per_part.values()],
+                                "Macro-F1": [f"{p.get('macro_f1', 0):.3f}" for p in per_part.values()],
                             }
                         )
                     )
-            cm = Path(cfg["train"]["out_dir"]) / "confusion_matrix.png"
-            if cm.exists():
-                st.image(str(cm), caption="Матрица ошибок (валидация)")
+                cm_data = m.get("confusion_matrix")
+                if cm_data:
+                    from orevision.viz import confusion_matrix_figure
+
+                    display_names = [
+                        cfg["classes"]["display"][c] for c in cfg["classes"]["order"]
+                    ]
+                    st.pyplot(confusion_matrix_figure(cm_data, display_names))
+                    st.caption(f"Матрица ошибок модели «{ckpt.name}» на валидации")
+            else:
+                st.info(
+                    "В этом чекпойнте не сохранены метрики валидации "
+                    "(вероятно, он обучен старой версией). Переобучите модель — "
+                    "новые чекпойнты хранят метрики внутри себя."
+                )
         with col2:
             st.subheader("Как это работает")
             st.markdown(

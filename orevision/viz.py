@@ -109,6 +109,29 @@ def legend_rows(cfg: dict) -> list[tuple[str, tuple[int, int, int]]]:
     ]
 
 
+def confusion_matrix_figure(cm: np.ndarray, labels: list[str]):
+    """Фигура матрицы ошибок; используется обучением и вкладкой «О модели»."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cm = np.asarray(cm)
+    fig, ax = plt.subplots(figsize=(5.5, 4.5))
+    im = ax.imshow(cm, cmap="Blues")
+    ax.set_xticks(range(len(labels)), labels, rotation=30, ha="right")
+    ax.set_yticks(range(len(labels)), labels)
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(j, i, str(cm[i, j]), ha="center", va="center",
+                    color="white" if cm[i, j] > cm.max() / 2 else "black")
+    ax.set_xlabel("Предсказано")
+    ax.set_ylabel("Истина")
+    fig.colorbar(im, fraction=0.046)
+    fig.tight_layout()
+    return fig
+
+
 def top_uncertain_tiles(
     base: Image.Image,
     result: AnalysisResult,
